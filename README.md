@@ -7,6 +7,7 @@ customer can touch their phone.
 
 This repo is **just the world**: a SQLite database, seed data, scenarios and a checker.
 There are no tools, no agent, no LLM calls and no logging yet. Building those is the exercise.
+Optionally, you can run it against real external systems (ServiceNow, Stripe) plus a mock network API. See [External systems](#external-systems-optional-realistic-mode).
 
 ## The client
 
@@ -35,6 +36,16 @@ northwind/
 tests/
   test_seed.py             seed counts, FK integrity, schema constraints
   test_scenarios.py        every scenario loads, fails before, passes when the expected state is applied
+  test_mock_network.py     mock API (skipped if fastapi isn't installed)
+  test_integrations.py     live-key refusal, config, sync payloads (no network)
+
+# optional realistic mode (see "External systems")
+mock_network/app.py        FastAPI mock carrier network + device API over the SQLite DB
+northwind/integrations.py  env loading, Stripe test-key guard, ServiceNow config
+scripts/check_*.py         one harmless read against ServiceNow / Stripe
+scripts/sync_*.py          idempotent push of seed/scenario data to ServiceNow / Stripe
+.env.example               env var names; copy to .env (gitignored)
+requirements-integrations.txt
 ```
 
 ## Schema
@@ -164,7 +175,7 @@ python -m northwind.scenarios                   # list scenarios
 python -m northwind.scenarios s03_suspended_overdue_bill          # load in memory and show what's unsolved
 python -m northwind.scenarios s03_suspended_overdue_bill run.db   # load into a file you can inspect
 
-pytest                                          # 67 tests
+pytest                                          # 97 tests with integrations installed (mock API tests skip without fastapi)
 ```
 
 Using it from code:
@@ -179,6 +190,133 @@ result = check_end_state(conn, scenario)
 print(result)                           # PASS, or FAIL with every mismatch listed
 ```
 
+## External systems (optional, realistic mode)
+
+Real FDE work means your agent talks to the client's actual systems, not one tidy database. In
+realistic mode the same world is split across three systems, the way it would be at a real carrier:
+
+| Data | Owner system | How you reach it |
+|---|---|---|
+| Customers (CRM-ish identity: name, DOB, PIN) | **SQLite** (stays local; Stripe also gets a copy for billing) | `northwind.db` |
+| Tickets | **ServiceNow** `incident` table (free Personal Developer Instance) | Table API, `https://<instance>.service-now.com/api/now/table/incident`, basic auth |
+| Bills | **Stripe** test mode (sandbox): Customers + Invoices | Stripe API with an `sk_test_...` key |
+| Lines + devices | **Mock network API** in `mock_network/` (no free real version exists) | `http://localhost:8300` |
+
+SQLite is still the source the sync scripts read from, and the scenario checker still reads SQLite.
+These scripts only **set up** the external systems. Your agent's tools, the loop, and logging are still yours to write.
+
+### 1. ServiceNow Personal Developer Instance (tickets)
+
+1. Go to [developer.servicenow.com](https://developer.servicenow.com), click **Sign up**, confirm the
+   email, and sign in. This is your ServiceNow ID, not your instance login.
+2. Click **Request Instance**, pick the newest release, click **Request**. It takes a few minutes. If
+   none are free, you can **Join Waitlist**.
+3. Open **Manage my Instance**. It shows your instance URL (like `https://dev12345.service-now.com`),
+   the username `admin`, and the password (click the eye icon).
+4. Put them in `.env` as `SERVICENOW_INSTANCE`, `SERVICENOW_USER`, `SERVICENOW_PASSWORD`.
+5. `python scripts/check_servicenow.py` should print `OK`.
+
+Things to know:
+- **Hibernation:** PDIs sleep when idle and return an HTML page instead of JSON. Sign in to the developer
+  site, or use Manage my Instance > **Wake Instance**, then wait a few minutes.
+- **Reclaimed after 10 days without activity:** the instance is reset and given to someone else. The sync
+  script can recreate the incidents any time.
+- **Production use isn't allowed:** PDIs are for learning only. Use the `admin` user here; for anything
+  closer to production you'd create a dedicated integration user with the `itil` role.
+
+API used (Table API, JSON, basic auth):
+```
+GET  /api/now/table/incident?sysparm_limit=1                              # check script
+GET  /api/now/table/incident?sysparm_query=correlation_id=<id>&sysparm_limit=1   # find existing
+POST /api/now/table/incident   {"short_description": ..., "correlation_id": ...} # create, returns 201
+```
+Incident `state` values used: `1` New, `2` In Progress. When your agent resolves or escalates, it'll
+PATCH `/api/now/table/incident/<sys_id>`. Look up the resolve fields on your instance
+(`close_code`, `close_notes`, state 6) rather than guessing.
+
+### 2. Stripe test mode (billing)
+
+1. Create an account at [dashboard.stripe.com/register](https://dashboard.stripe.com/register). You don't
+   need to activate payments or add bank details to use a sandbox.
+2. Make sure you're in a **sandbox** (test mode). Stripe recommends a separate sandbox for each new integration.
+3. Open the **API keys** page (Developers > API keys) and reveal the **secret key**. Sandbox secret keys
+   start with `sk_test_`. Put it in `.env` as `STRIPE_SECRET_KEY`.
+4. **Never use a live key** (`sk_live_...`). Every script here refuses one before making any call.
+5. `python scripts/check_stripe.py` should print `OK`.
+
+Tip: a restricted key (`rk_test_...`) with only Customers + Invoices + Invoice Items write access also
+works and is safer. Stripe recommends restricted keys over secret keys.
+
+### 3. Mock network API (lines + devices)
+
+```bash
+NORTHWIND_DB=northwind.db uvicorn mock_network.app:app --port 8300   # docs: http://localhost:8300/docs
+```
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/health` | which DB it's serving |
+| GET | `/lines?msisdn=...` or `?customer_id=...` | find lines |
+| GET / PATCH | `/lines/{line_id}` | status, suspension_reason, plan_id, data_used_mb, data_topup_mb, provisioning_ok, roaming_enabled |
+| GET | `/lines/{line_id}/device` | the handset on that line |
+| GET / PATCH | `/devices/{device_id}` | airplane_mode, mobile_data_enabled, data_roaming_on, is_abroad, apn_ok, needs_restart, hardware_fault, signal_bars |
+
+- It only stores state. It doesn't enforce business rules like "pay before resume"; your tools do.
+  It does enforce the schema: `{"status": "active"}` on a suspended line returns **409** until you
+  also send `"suspension_reason": null`. Unknown fields or bad values return **422**.
+- **Information asymmetry:** send `X-Actor: agent` from agent-side code. The device endpoints return
+  **403** for it, because only the customer can see their phone. Your simulated user's tools call
+  the device endpoints with `X-Actor: user`.
+
+### Setup
+
+```bash
+pip install -r requirements-integrations.txt
+cp .env.example .env          # fill in the values; .env is gitignored
+python -m northwind.seed
+python scripts/check_servicenow.py && python scripts/check_stripe.py
+python scripts/sync_servicenow.py --dry-run && python scripts/sync_servicenow.py   # 8 tickets -> incidents
+python scripts/sync_stripe.py --dry-run && python scripts/sync_stripe.py           # 12 customers, 36 invoices
+NORTHWIND_DB=northwind.db uvicorn mock_network.app:app --port 8300
+```
+
+| Env var | Used by |
+|---|---|
+| `SERVICENOW_INSTANCE` | `dev12345` or `https://dev12345.service-now.com` |
+| `SERVICENOW_USER`, `SERVICENOW_PASSWORD` | basic auth for the Table API |
+| `STRIPE_SECRET_KEY` | `sk_test_...` / `rk_test_...` only |
+| `NETWORK_API_URL` | where your tools find the mock API (default `http://localhost:8300`) |
+
+Both sync scripts are **idempotent**, so you can run them again without creating duplicates:
+- **ServiceNow:** each incident gets `correlation_id = northwind-<tag>-<ticket id>`, and existing ones are skipped.
+- **Stripe:** customers are matched by email plus `northwind_tag` metadata, and invoices by `northwind_bill_id` metadata.
+- **Paid vs. overdue bills:** paid bills become invoices that are finalized and marked paid out of band, so no charge is made.
+  Unpaid ones stay `open`. Stripe won't take a past due date, so the real due date and the overdue flag are stored in
+  metadata (`northwind_due_date`, `northwind_overdue`). Your billing tool should read `northwind_overdue`, and
+  paying an overdue bill can use the same paid-out-of-band call.
+
+### Using it with scenarios
+
+Load a scenario into a file, then point every system at it with a tag so runs don't collide:
+
+```bash
+python -m northwind.scenarios s03_suspended_overdue_bill run.db
+python scripts/sync_stripe.py --db run.db --tag s03        # BIL-3001 open + northwind_overdue=1
+python scripts/sync_servicenow.py --db run.db --tag s03    # incident northwind-s03-TKT-5001
+NORTHWIND_DB=run.db uvicorn mock_network.app:app --port 8300   # LIN-2001 suspended
+```
+
+| Scenario needs | Fixed in |
+|---|---|
+| airplane mode, mobile data, data roaming, restart, APN (s01, s02, s05, s06, s07, s08) | mock API `/devices` (user side) |
+| suspended line, top-up, provisioning reset, carrier roaming (s03, s04, s05, s07, s09, s10) | mock API `/lines` (agent side) |
+| overdue bill paid (s03, s09) | Stripe invoice paid |
+| ticket resolved or escalated (all; s11 and s12 must escalate) | ServiceNow incident |
+
+`check_end_state` reads SQLite. The mock API writes to SQLite directly. For Stripe and ServiceNow,
+your eval step should copy the final invoice status and incident state back into the scenario DB
+before checking (a small "pull" step you write), or you can extend the checker to query them.
+
 ## Your tasks
 
 Build these yourself, roughly in order. Get each working before starting the next.
@@ -190,6 +328,7 @@ Build these yourself, roughly in order. Get each working before starting the nex
    (`check_status_bar`, `toggle_airplane_mode`, `toggle_mobile_data`, `toggle_data_roaming`,
    `restart_device`, `run_speed_test`). Each takes a connection, reads/writes SQLite, and returns a dict.
    Add a registry with JSON-schema descriptions so an LLM can call them. Unit-test them.
+   In realistic mode, the tools call ServiceNow, Stripe and the mock network API instead of SQLite.
 2. **Agent loop.** An LLM that gets the ticket and the carrier tools and loops
    think → call a tool or message the customer → read the result, until it resolves, escalates,
    or hits a max-turn cap. It must never call device tools itself.

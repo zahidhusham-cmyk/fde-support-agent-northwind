@@ -1,0 +1,8 @@
+# Optional: only needed for realistic mode (external systems). Core repo needs just requirements.txt.
+-r requirements.txt
+stripe>=12
+requests>=2.31
+fastapi>=0.110
+uvicorn>=0.29
+python-dotenv>=1.0
+httpx2  # used by fastapi.testclient in tests/test_mock_network.py (older starlette uses httpx)
