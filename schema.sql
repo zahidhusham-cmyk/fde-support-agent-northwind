@@ -12,6 +12,19 @@ CREATE TABLE plans (
     roaming_included    INTEGER NOT NULL DEFAULT 0 CHECK (roaming_included IN (0, 1))
 );
 
+-- Cell sites (towers) on Northwind's network (reference data). Carrier-side: the NOC sees status.
+CREATE TABLE cells (
+    id                   TEXT PRIMARY KEY,          -- e.g. 'CELL-MAN-0412'
+    name                 TEXT NOT NULL,
+    area                 TEXT NOT NULL,
+    rat                  TEXT NOT NULL CHECK (rat IN ('5G', 'LTE')),   -- best radio technology offered
+    status               TEXT NOT NULL DEFAULT 'up' CHECK (status IN ('up', 'degraded', 'outage')),
+    outage_reason        TEXT,
+    outage_started_at    TEXT,
+    estimated_restore_at TEXT,
+    CHECK ((status = 'up') = (outage_reason IS NULL))
+);
+
 -- Account holders.
 CREATE TABLE customers (
     id            TEXT PRIMARY KEY,                 -- e.g. 'CUS-1001'
@@ -52,6 +65,8 @@ CREATE TABLE bills (
 );
 
 -- The customer's handset. Device-side state only the USER can see/change.
+-- The carrier never reads this table directly; it sees a DERIVED network view instead
+-- (northwind/network.py): symptoms like "not registered, last seen 2h ago", not causes.
 CREATE TABLE devices (
     id                  TEXT PRIMARY KEY,           -- e.g. 'DEV-4001'
     line_id             TEXT NOT NULL UNIQUE REFERENCES lines(id),
@@ -64,7 +79,13 @@ CREATE TABLE devices (
     apn_ok              INTEGER NOT NULL DEFAULT 1 CHECK (apn_ok IN (0, 1)),          -- APN settings correct on handset
     needs_restart       INTEGER NOT NULL DEFAULT 0 CHECK (needs_restart IN (0, 1)),   -- stale radio state, cleared by a reboot
     hardware_fault      INTEGER NOT NULL DEFAULT 0 CHECK (hardware_fault IN (0, 1)),  -- nothing remote can fix this
-    signal_bars         INTEGER NOT NULL DEFAULT 4 CHECK (signal_bars BETWEEN 0 AND 5)
+    signal_bars         INTEGER NOT NULL DEFAULT 4 CHECK (signal_bars BETWEEN 0 AND 5), -- RF coverage where the phone is (0 = dead zone)
+    powered_on          INTEGER NOT NULL DEFAULT 1 CHECK (powered_on IN (0, 1)),
+    sim_ok              INTEGER NOT NULL DEFAULT 1 CHECK (sim_ok IN (0, 1)),          -- 0 = SIM unseated/damaged
+    cell_id             TEXT DEFAULT 'CELL-MAN-0412' REFERENCES cells(id),            -- home-network cell the phone is in (ignored abroad)
+    visited_network     TEXT,                                                         -- partner network name when abroad
+    last_attached_at    TEXT,                                                         -- last time the radio reached the network (system-maintained)
+    CHECK (is_abroad = 0 OR visited_network IS NOT NULL)
 );
 
 -- Support tickets.

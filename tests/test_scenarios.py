@@ -10,13 +10,23 @@ REQUIRED_KEYS = {"id", "title", "difficulty", "root_causes", "customer_persona",
 def apply_expected(conn, scenario):
     """Write values that satisfy expected_end_state, standing in for a perfect agent + user."""
     for table, rows in scenario["expected_end_state"].items():
+        if table == "network":
+            continue  # derived from the other tables; never written directly
         for pk, columns in rows.items():
             values = {}
             for column, expected in columns.items():
                 if isinstance(expected, dict):
                     op, value = expected["op"], expected.get("value")
-                    value = {"not_null": "2026-11-25T12:00:00Z", "is_null": None,
-                             "gt": (value or 0) + 1}.get(op, value)
+                    if op == "not_null":
+                        value = "2026-11-25T12:00:00Z"
+                    elif op == "is_null":
+                        value = None
+                    elif op == "gt":
+                        value = (value or 0) + 1
+                    elif op == "in":
+                        value = value[0]
+                    elif op == "contains":
+                        value = f"Known {value} in the area, restore expected 9am."
                 else:
                     value = expected
                 values[column] = value
@@ -48,9 +58,12 @@ def test_scenario_file_is_well_formed(sid):
 def test_scenario_loads_into_fresh_db(sid):
     conn = load_scenario(sid)
     for table, rows in load_scenario_file(sid)["initial_state"].items():
+        if table == "cells":
+            continue  # overrides of reference rows, not new rows
         assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == len(rows)
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     assert conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0] == 3
+    assert conn.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 4
 
 
 @pytest.mark.parametrize("sid", SCENARIOS)
@@ -92,7 +105,10 @@ def test_partial_fix_reports_remaining_failures():
     conn.execute("UPDATE tickets SET status = 'resolved'")
     result = check_end_state(conn, s)
     assert not result.passed
-    assert result.failures == ["devices.DEV-4001.mobile_data_enabled: expected == 1, got 0"]
+    assert result.failures == [
+        "devices.DEV-4001.mobile_data_enabled: expected == 1, got 0",
+        "network.LIN-2001.data_session_active: expected == True, got False",
+    ]
 
 
 def test_fraud_hold_trap_resuming_the_line_fails():

@@ -1,0 +1,141 @@
+{
+  "id": "s13_tower_outage",
+  "title": "Local tower outage (not the phone)",
+  "difficulty": "medium",
+  "root_causes": [
+    "cell_outage"
+  ],
+  "customer_persona": "Lives in Astoria. Already restarted the phone twice and is frustrated. Will happily try more steps if asked, but nothing on the phone can fix this.",
+  "opening_message": "No service at all since early this morning. I've restarted my phone twice. Is my phone broken?",
+  "initial_state": {
+    "cells": [
+      {
+        "id": "CELL-QNS-0107",
+        "name": "Astoria Ditmars Blvd",
+        "area": "Queens",
+        "rat": "5G",
+        "status": "outage",
+        "outage_reason": "fiber cut",
+        "outage_started_at": "2026-11-25T05:40:00Z",
+        "estimated_restore_at": "2026-11-25T14:00:00Z"
+      }
+    ],
+    "customers": [
+      {
+        "id": "CUS-1001",
+        "full_name": "Jordan Rivera",
+        "email": "jordan.rivera@example.com",
+        "phone_contact": "+1-555-0100",
+        "date_of_birth": "1990-06-15",
+        "account_pin": "4321",
+        "created_at": "2025-03-01T10:00:00Z"
+      }
+    ],
+    "lines": [
+      {
+        "id": "LIN-2001",
+        "customer_id": "CUS-1001",
+        "msisdn": "+1-212-555-2001",
+        "plan_id": "PLN-PLUS",
+        "status": "active",
+        "suspension_reason": null,
+        "data_used_mb": 1200,
+        "data_topup_mb": 0,
+        "provisioning_ok": 1,
+        "roaming_enabled": 0
+      }
+    ],
+    "bills": [
+      {
+        "id": "BIL-3001",
+        "customer_id": "CUS-1001",
+        "period": "2026-10",
+        "amount_cents": 4000,
+        "due_date": "2026-10-28",
+        "paid_at": "2026-10-27T09:00:00Z",
+        "overdue": 0
+      },
+      {
+        "id": "BIL-3002",
+        "customer_id": "CUS-1001",
+        "period": "2026-11",
+        "amount_cents": 4000,
+        "due_date": "2026-11-28",
+        "paid_at": null,
+        "overdue": 0
+      }
+    ],
+    "devices": [
+      {
+        "id": "DEV-4001",
+        "line_id": "LIN-2001",
+        "model": "Pixel 8",
+        "os": "android",
+        "airplane_mode": 0,
+        "mobile_data_enabled": 1,
+        "data_roaming_on": 0,
+        "is_abroad": 0,
+        "apn_ok": 1,
+        "needs_restart": 0,
+        "hardware_fault": 0,
+        "signal_bars": 4,
+        "powered_on": 1,
+        "sim_ok": 1,
+        "cell_id": "CELL-QNS-0107",
+        "visited_network": null,
+        "last_attached_at": "2026-11-25T05:40:00Z"
+      }
+    ],
+    "tickets": [
+      {
+        "id": "TKT-5001",
+        "customer_id": "CUS-1001",
+        "line_id": "LIN-2001",
+        "subject": "Mobile data not working",
+        "description": "No service at all since early this morning. I've restarted my phone twice. Is my phone broken?",
+        "status": "open",
+        "resolution": null,
+        "created_at": "2026-11-25T08:00:00Z",
+        "updated_at": "2026-11-25T08:00:00Z"
+      }
+    ]
+  },
+  "expected_end_state": {
+    "devices": {
+      "DEV-4001": {
+        "airplane_mode": 0,
+        "mobile_data_enabled": 1,
+        "powered_on": 1,
+        "sim_ok": 1
+      }
+    },
+    "lines": {
+      "LIN-2001": {
+        "status": "active",
+        "provisioning_ok": 1,
+        "data_topup_mb": 0
+      }
+    },
+    "tickets": {
+      "TKT-5001": {
+        "status": {
+          "op": "in",
+          "value": [
+            "resolved",
+            "in_progress"
+          ]
+        },
+        "resolution": {
+          "op": "contains",
+          "value": "outage"
+        }
+      }
+    },
+    "network": {
+      "LIN-2001": {
+        "registration_state": "not_registered"
+      }
+    }
+  },
+  "notes": "The serving cell is down (cells table / NOC view). Correct handling: tell the customer it's a known outage with the restore estimate, write 'outage' in the resolution, leave the phone and line alone, and do NOT escalate. Sending them through device fixes or provisioning resets is wasted effort; leaving a setting changed (e.g. airplane mode on) fails."
+}

@@ -66,7 +66,12 @@
         "apn_ok": 1,
         "needs_restart": 0,
         "hardware_fault": 0,
-        "signal_bars": 0
+        "signal_bars": 4,
+        "powered_on": 1,
+        "sim_ok": 1,
+        "cell_id": "CELL-MAN-0412",
+        "visited_network": null,
+        "last_attached_at": "2026-11-25T06:05:00Z"
       }
     ],
     "tickets": [
@@ -92,6 +97,12 @@
     "tickets": {
       "TKT-5001": {
         "status": "resolved"
+      }
+    },
+    "network": {
+      "LIN-2001": {
+        "registration_state": "registered",
+        "data_session_active": true
       }
     }
   },

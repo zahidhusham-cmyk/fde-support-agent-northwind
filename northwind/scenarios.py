@@ -19,7 +19,10 @@ Expected end state format (in each scenario JSON):
         }
     }
 
-Operators: eq, ne, gt, gte, lt, lte, in, not_in, is_null, not_null.
+Operators: eq, ne, gt, gte, lt, lte, in, not_in, is_null, not_null, contains.
+
+The pseudo-table "network" is keyed by line id and checks the DERIVED network view
+(northwind/network.py), e.g. {"network": {"LIN-2001": {"data_session_active": true}}}.
 """
 from __future__ import annotations
 
@@ -30,10 +33,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from northwind.db import TABLES, fresh_db, insert_rows
+from northwind.network import get_network_status
 
 SCENARIO_DIR = Path(__file__).resolve().parent / "scenarios"
 # Order matters for foreign keys.
-INSERT_ORDER = ["customers", "lines", "bills", "devices", "tickets"]
+INSERT_ORDER = ["cells", "customers", "lines", "bills", "devices", "tickets"]
+REPLACE_TABLES = {"cells"}  # reference rows a scenario may override (e.g. a cell in outage)
 
 OPS = {
     "eq": lambda a, b: a == b,
@@ -46,6 +51,7 @@ OPS = {
     "not_in": lambda a, b: a not in b,
     "is_null": lambda a, _b: a is None,
     "not_null": lambda a, _b: a is not None,
+    "contains": lambda a, b: a is not None and str(b).lower() in str(a).lower(),  # case-insensitive substring
 }
 
 
@@ -83,7 +89,7 @@ def load_scenario(scenario: dict | str, db_path: str | Path = ":memory:") -> sql
     if unknown:
         raise ValueError(f"initial_state has unknown tables: {sorted(unknown)}")
     for table in INSERT_ORDER:
-        insert_rows(conn, table, state.get(table, []))
+        insert_rows(conn, table, state.get(table, []), replace=table in REPLACE_TABLES)
     conn.commit()
     return conn
 
@@ -105,15 +111,22 @@ def check_end_state(conn: sqlite3.Connection, scenario: dict | str) -> CheckResu
         scenario = load_scenario_file(scenario)
     failures: list[str] = []
     for table, rows in scenario["expected_end_state"].items():
-        if table not in TABLES:
+        if table != "network" and table not in TABLES:
             raise ValueError(f"expected_end_state has unknown table: {table}")
         for pk, columns in rows.items():
-            row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (pk,)).fetchone()
+            if table == "network":
+                try:
+                    row = get_network_status(conn, pk)
+                except KeyError:
+                    row = None
+            else:
+                found = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (pk,)).fetchone()
+                row = dict(found) if found else None
             if row is None:
                 failures.append(f"{table}.{pk}: row missing")
                 continue
             for column, expected in columns.items():
-                if column not in row.keys():
+                if column not in row:
                     raise ValueError(f"{table} has no column {column}")
                 ok, desc = _matches(row[column], expected)
                 if not ok:

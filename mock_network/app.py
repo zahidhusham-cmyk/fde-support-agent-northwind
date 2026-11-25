@@ -12,7 +12,8 @@ Run:
 
 Information asymmetry: send `X-Actor: agent` from agent-side code. Device endpoints refuse that
 header with 403, because only the customer can see or touch their phone. (`X-Actor: user` or no
-header is allowed.)
+header is allowed.) What the carrier CAN see is the network view: GET /lines/{id}/network, derived
+from line + device + cell state (northwind/network.py), plus the cells (towers) and their outages.
 """
 from __future__ import annotations
 
@@ -25,14 +26,17 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from northwind.db import DEFAULT_DB_PATH, connect
+from northwind.network import get_network_status, mark_last_seen
 
 LINE_FIELDS = ["id", "customer_id", "msisdn", "plan_id", "status", "suspension_reason", "data_used_mb",
                "data_topup_mb", "provisioning_ok", "roaming_enabled"]
 DEVICE_FIELDS = ["id", "line_id", "model", "os", "airplane_mode", "mobile_data_enabled", "data_roaming_on",
-                 "is_abroad", "apn_ok", "needs_restart", "hardware_fault", "signal_bars"]
+                 "is_abroad", "apn_ok", "needs_restart", "hardware_fault", "signal_bars", "powered_on", "sim_ok",
+                 "cell_id", "visited_network", "last_attached_at"]
+CELL_FIELDS = ["id", "name", "area", "rat", "status", "outage_reason", "outage_started_at", "estimated_restore_at"]
 LINE_BOOLS = {"provisioning_ok", "roaming_enabled"}
 DEVICE_BOOLS = {"airplane_mode", "mobile_data_enabled", "data_roaming_on", "is_abroad", "apn_ok",
-                "needs_restart", "hardware_fault"}
+                "needs_restart", "hardware_fault", "powered_on", "sim_ok"}
 
 
 class LinePatch(BaseModel):
@@ -56,6 +60,19 @@ class DevicePatch(BaseModel):
     needs_restart: Optional[bool] = None
     hardware_fault: Optional[bool] = None
     signal_bars: Optional[int] = Field(None, ge=0, le=5)
+    powered_on: Optional[bool] = None
+    sim_ok: Optional[bool] = None
+    cell_id: Optional[str] = None          # the customer moved
+    visited_network: Optional[str] = None  # required when is_abroad is true
+
+
+class CellPatch(BaseModel):
+    """Network-ops changes (open/close an outage). Not something the agent or customer does."""
+    model_config = ConfigDict(extra="forbid")
+    status: Optional[Literal["up", "degraded", "outage"]] = None
+    outage_reason: Optional[str] = None
+    outage_started_at: Optional[str] = None
+    estimated_restore_at: Optional[str] = None
 
 
 def db_path() -> Path:
@@ -75,7 +92,8 @@ def get_conn():
 
 def no_agent(x_actor: Optional[str] = Header(default=None)) -> None:
     if (x_actor or "").lower() == "agent":
-        raise HTTPException(403, "device state is only visible to the customer; agent access denied")
+        raise HTTPException(403, "not available to the agent (device state is only visible to the customer; "
+                                 "use GET /lines/{id}/network for the carrier's view)")
 
 
 def to_dict(row: sqlite3.Row, fields: list[str], bools: set[str]) -> dict:
@@ -92,6 +110,11 @@ def apply_patch(conn, table: str, row_id: str, patch: BaseModel) -> None:
     if not changes:
         raise HTTPException(422, "empty patch")
     values = {k: (int(v) if isinstance(v, bool) else v) for k, v in changes.items()}
+    if table in ("devices", "cells"):
+        # Stamp 'last seen' on phones still on the network before a change that may knock them off.
+        ids = ([row_id] if table == "devices" else
+               [r["id"] for r in conn.execute("SELECT id FROM devices WHERE cell_id = ?", (row_id,))])
+        mark_last_seen(conn, ids)
     sets = ", ".join(f"{k} = ?" for k in values)
     try:
         conn.execute(f"UPDATE {table} SET {sets} WHERE id = ?", (*values.values(), row_id))
@@ -136,6 +159,40 @@ def patch_line(line_id: str, patch: LinePatch, conn=Depends(get_conn)):
         raise HTTPException(404, f"line {line_id} not found")
     apply_patch(conn, "lines", line_id, patch)
     return to_dict(fetch(conn, "lines", "id", line_id), LINE_FIELDS, LINE_BOOLS)
+
+
+@app.get("/lines/{line_id}/network")
+def get_line_network(line_id: str, conn=Depends(get_conn)):
+    """What the carrier's core network sees for this line. Readable by the agent."""
+    try:
+        return get_network_status(conn, line_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from e
+
+
+@app.get("/cells")
+def list_cells(status: Optional[Literal["up", "degraded", "outage"]] = None, conn=Depends(get_conn)):
+    q, args = "SELECT * FROM cells", []
+    if status:
+        q, args = q + " WHERE status = ?", [status]
+    return [to_dict(r, CELL_FIELDS, set()) for r in conn.execute(q + " ORDER BY id", args)]
+
+
+@app.get("/cells/{cell_id}")
+def get_cell(cell_id: str, conn=Depends(get_conn)):
+    row = fetch(conn, "cells", "id", cell_id)
+    if row is None:
+        raise HTTPException(404, f"cell {cell_id} not found")
+    return to_dict(row, CELL_FIELDS, set())
+
+
+@app.patch("/cells/{cell_id}", dependencies=[Depends(no_agent)])
+def patch_cell(cell_id: str, patch: CellPatch, conn=Depends(get_conn)):
+    """Network operations only (simulate an outage starting or ending). The agent can't do this."""
+    if fetch(conn, "cells", "id", cell_id) is None:
+        raise HTTPException(404, f"cell {cell_id} not found")
+    apply_patch(conn, "cells", cell_id, patch)
+    return to_dict(fetch(conn, "cells", "id", cell_id), CELL_FIELDS, set())
 
 
 @app.get("/lines/{line_id}/device", dependencies=[Depends(no_agent)])

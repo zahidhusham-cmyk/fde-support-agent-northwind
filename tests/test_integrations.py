@@ -71,7 +71,7 @@ def test_stripe_plan_from_seed(tmp_path):
 
 def test_servicenow_payloads_from_seed(tmp_path):
     payloads = sync_servicenow.build_payloads(seed(tmp_path / "s.db"), "seed")
-    assert len(payloads) == 8
+    assert len(payloads) == 9
     assert payloads[0]["correlation_id"] == "northwind-seed-TKT-5001"
-    assert len({p["correlation_id"] for p in payloads}) == 8
+    assert len({p["correlation_id"] for p in payloads}) == 9
     assert all(p["state"] == "1" for p in payloads)

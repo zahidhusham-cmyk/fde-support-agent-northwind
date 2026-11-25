@@ -23,7 +23,8 @@ def test_seed_row_counts(conn):
     assert count(conn, "lines") == 12
     assert count(conn, "devices") == 12
     assert count(conn, "bills") == 36
-    assert count(conn, "tickets") == 8
+    assert count(conn, "tickets") == 9
+    assert count(conn, "cells") == 4
 
 
 def test_seed_foreign_keys_are_valid(conn):
