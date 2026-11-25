@@ -320,6 +320,11 @@ These scripts only **set up** the external systems. Your agent's tools, the loop
 Things to know:
 - **Hibernation:** PDIs sleep when idle and return an HTML page instead of JSON. Sign in to the developer
   site, or use Manage my Instance > **Wake Instance**, then wait a few minutes.
+- **401 even though the password is right:** some instances enforce a basic-auth restriction
+  (system property `glide.authenticate.basic_auth.restriction.enforce` = `true`). Then only users with the
+  role `snc_basic_auth_api_access` can call the Table API with a username and password, even though
+  `admin` can still sign in through the browser. Fix: in your instance go to **User Administration > Users**,
+  open `admin`, and add the role `snc_basic_auth_api_access` under **Roles**. Then rerun the check script.
 - **Reclaimed after 10 days without activity:** the instance is reset and given to someone else. The sync
   script can recreate the incidents any time.
 - **Production use isn't allowed:** PDIs are for learning only. Use the `admin` user here; for anything
