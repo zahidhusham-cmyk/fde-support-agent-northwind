@@ -1,0 +1,99 @@
+{
+  "id": "s01_airplane_mode",
+  "title": "Airplane mode left on",
+  "difficulty": "easy",
+  "root_causes": [
+    "airplane_mode_on"
+  ],
+  "customer_persona": "Non-technical, a bit impatient. Doesn't know what the airplane icon means. Will do what they're told if it's explained simply.",
+  "opening_message": "My phone says no internet and I can't load anything. I haven't changed anything!",
+  "initial_state": {
+    "customers": [
+      {
+        "id": "CUS-1001",
+        "full_name": "Jordan Rivera",
+        "email": "jordan.rivera@example.com",
+        "phone_contact": "+1-555-0100",
+        "date_of_birth": "1990-06-15",
+        "account_pin": "4321",
+        "created_at": "2025-03-01T10:00:00Z"
+      }
+    ],
+    "lines": [
+      {
+        "id": "LIN-2001",
+        "customer_id": "CUS-1001",
+        "msisdn": "+1-212-555-2001",
+        "plan_id": "PLN-PLUS",
+        "status": "active",
+        "suspension_reason": null,
+        "data_used_mb": 1200,
+        "data_topup_mb": 0,
+        "provisioning_ok": 1,
+        "roaming_enabled": 0
+      }
+    ],
+    "bills": [
+      {
+        "id": "BIL-3001",
+        "customer_id": "CUS-1001",
+        "period": "2026-10",
+        "amount_cents": 4000,
+        "due_date": "2026-10-28",
+        "paid_at": "2026-10-27T09:00:00Z",
+        "overdue": 0
+      },
+      {
+        "id": "BIL-3002",
+        "customer_id": "CUS-1001",
+        "period": "2026-11",
+        "amount_cents": 4000,
+        "due_date": "2026-11-28",
+        "paid_at": null,
+        "overdue": 0
+      }
+    ],
+    "devices": [
+      {
+        "id": "DEV-4001",
+        "line_id": "LIN-2001",
+        "model": "Pixel 8",
+        "os": "android",
+        "airplane_mode": 1,
+        "mobile_data_enabled": 1,
+        "data_roaming_on": 0,
+        "is_abroad": 0,
+        "apn_ok": 1,
+        "needs_restart": 0,
+        "hardware_fault": 0,
+        "signal_bars": 0
+      }
+    ],
+    "tickets": [
+      {
+        "id": "TKT-5001",
+        "customer_id": "CUS-1001",
+        "line_id": "LIN-2001",
+        "subject": "Mobile data not working",
+        "description": "My phone says no internet and I can't load anything. I haven't changed anything!",
+        "status": "open",
+        "resolution": null,
+        "created_at": "2026-11-25T08:00:00Z",
+        "updated_at": "2026-11-25T08:00:00Z"
+      }
+    ]
+  },
+  "expected_end_state": {
+    "devices": {
+      "DEV-4001": {
+        "airplane_mode": 0
+      }
+    },
+    "tickets": {
+      "TKT-5001": {
+        "status": "resolved"
+      }
+    }
+  },
+  "notes": "Only visible from the device side. Carrier systems all look healthy."
+}

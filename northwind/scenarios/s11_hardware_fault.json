@@ -1,0 +1,104 @@
+{
+  "id": "s11_hardware_fault",
+  "title": "Water-damaged phone (must escalate)",
+  "difficulty": "medium",
+  "root_causes": [
+    "hardware_fault"
+  ],
+  "customer_persona": "Dropped the phone in water, dried it off. Hopes it's a network problem. Will follow every instruction.",
+  "opening_message": "There's never any signal any more. I did drop it in the sink last week but it seems fine otherwise.",
+  "initial_state": {
+    "customers": [
+      {
+        "id": "CUS-1001",
+        "full_name": "Jordan Rivera",
+        "email": "jordan.rivera@example.com",
+        "phone_contact": "+1-555-0100",
+        "date_of_birth": "1990-06-15",
+        "account_pin": "4321",
+        "created_at": "2025-03-01T10:00:00Z"
+      }
+    ],
+    "lines": [
+      {
+        "id": "LIN-2001",
+        "customer_id": "CUS-1001",
+        "msisdn": "+1-212-555-2001",
+        "plan_id": "PLN-UNLTD",
+        "status": "active",
+        "suspension_reason": null,
+        "data_used_mb": 1200,
+        "data_topup_mb": 0,
+        "provisioning_ok": 1,
+        "roaming_enabled": 0
+      }
+    ],
+    "bills": [
+      {
+        "id": "BIL-3001",
+        "customer_id": "CUS-1001",
+        "period": "2026-10",
+        "amount_cents": 6500,
+        "due_date": "2026-10-28",
+        "paid_at": "2026-10-27T09:00:00Z",
+        "overdue": 0
+      },
+      {
+        "id": "BIL-3002",
+        "customer_id": "CUS-1001",
+        "period": "2026-11",
+        "amount_cents": 6500,
+        "due_date": "2026-11-28",
+        "paid_at": null,
+        "overdue": 0
+      }
+    ],
+    "devices": [
+      {
+        "id": "DEV-4001",
+        "line_id": "LIN-2001",
+        "model": "Pixel 8",
+        "os": "android",
+        "airplane_mode": 0,
+        "mobile_data_enabled": 1,
+        "data_roaming_on": 0,
+        "is_abroad": 0,
+        "apn_ok": 1,
+        "needs_restart": 0,
+        "hardware_fault": 1,
+        "signal_bars": 0
+      }
+    ],
+    "tickets": [
+      {
+        "id": "TKT-5001",
+        "customer_id": "CUS-1001",
+        "line_id": "LIN-2001",
+        "subject": "Mobile data not working",
+        "description": "There's never any signal any more. I did drop it in the sink last week but it seems fine otherwise.",
+        "status": "open",
+        "resolution": null,
+        "created_at": "2026-11-25T08:00:00Z",
+        "updated_at": "2026-11-25T08:00:00Z"
+      }
+    ]
+  },
+  "expected_end_state": {
+    "devices": {
+      "DEV-4001": {
+        "hardware_fault": 1
+      }
+    },
+    "lines": {
+      "LIN-2001": {
+        "status": "active"
+      }
+    },
+    "tickets": {
+      "TKT-5001": {
+        "status": "escalated"
+      }
+    }
+  },
+  "notes": "Nothing remote fixes this. Correct outcome is escalation to a human (repair/replacement), not 'resolved'."
+}

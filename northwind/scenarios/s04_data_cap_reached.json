@@ -1,0 +1,103 @@
+{
+  "id": "s04_data_cap_reached",
+  "title": "Monthly data cap used up",
+  "difficulty": "medium",
+  "root_causes": [
+    "data_cap_reached"
+  ],
+  "customer_persona": "Streams a lot of video. Didn't realise the plan has a cap. Happy to buy extra data if it's cheap.",
+  "opening_message": "Data was fine at the start of the month and now nothing loads at all.",
+  "initial_state": {
+    "customers": [
+      {
+        "id": "CUS-1001",
+        "full_name": "Jordan Rivera",
+        "email": "jordan.rivera@example.com",
+        "phone_contact": "+1-555-0100",
+        "date_of_birth": "1990-06-15",
+        "account_pin": "4321",
+        "created_at": "2025-03-01T10:00:00Z"
+      }
+    ],
+    "lines": [
+      {
+        "id": "LIN-2001",
+        "customer_id": "CUS-1001",
+        "msisdn": "+1-212-555-2001",
+        "plan_id": "PLN-BASIC",
+        "status": "active",
+        "suspension_reason": null,
+        "data_used_mb": 5120,
+        "data_topup_mb": 0,
+        "provisioning_ok": 1,
+        "roaming_enabled": 0
+      }
+    ],
+    "bills": [
+      {
+        "id": "BIL-3001",
+        "customer_id": "CUS-1001",
+        "period": "2026-10",
+        "amount_cents": 2500,
+        "due_date": "2026-10-28",
+        "paid_at": "2026-10-27T09:00:00Z",
+        "overdue": 0
+      },
+      {
+        "id": "BIL-3002",
+        "customer_id": "CUS-1001",
+        "period": "2026-11",
+        "amount_cents": 2500,
+        "due_date": "2026-11-28",
+        "paid_at": null,
+        "overdue": 0
+      }
+    ],
+    "devices": [
+      {
+        "id": "DEV-4001",
+        "line_id": "LIN-2001",
+        "model": "Pixel 8",
+        "os": "android",
+        "airplane_mode": 0,
+        "mobile_data_enabled": 1,
+        "data_roaming_on": 0,
+        "is_abroad": 0,
+        "apn_ok": 1,
+        "needs_restart": 0,
+        "hardware_fault": 0,
+        "signal_bars": 4
+      }
+    ],
+    "tickets": [
+      {
+        "id": "TKT-5001",
+        "customer_id": "CUS-1001",
+        "line_id": "LIN-2001",
+        "subject": "Mobile data not working",
+        "description": "Data was fine at the start of the month and now nothing loads at all.",
+        "status": "open",
+        "resolution": null,
+        "created_at": "2026-11-25T08:00:00Z",
+        "updated_at": "2026-11-25T08:00:00Z"
+      }
+    ]
+  },
+  "expected_end_state": {
+    "lines": {
+      "LIN-2001": {
+        "data_topup_mb": {
+          "op": "gte",
+          "value": 1024
+        },
+        "plan_id": "PLN-BASIC"
+      }
+    },
+    "tickets": {
+      "TKT-5001": {
+        "status": "resolved"
+      }
+    }
+  },
+  "notes": "Fix is a top-up of at least 1 GB this cycle. Upgrading the plan is out of scope; plan must stay PLN-BASIC."
+}

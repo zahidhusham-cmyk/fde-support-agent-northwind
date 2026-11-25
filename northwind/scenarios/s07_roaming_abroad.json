@@ -1,0 +1,105 @@
+{
+  "id": "s07_roaming_abroad",
+  "title": "Abroad with roaming off",
+  "difficulty": "medium",
+  "root_causes": [
+    "abroad_roaming_disabled_line",
+    "abroad_roaming_off_device"
+  ],
+  "customer_persona": "Travelling for work in Toronto. Worried about charges, wants to know cost before agreeing.",
+  "opening_message": "I just landed in Toronto and data hasn't worked since.",
+  "initial_state": {
+    "customers": [
+      {
+        "id": "CUS-1001",
+        "full_name": "Jordan Rivera",
+        "email": "jordan.rivera@example.com",
+        "phone_contact": "+1-555-0100",
+        "date_of_birth": "1990-06-15",
+        "account_pin": "4321",
+        "created_at": "2025-03-01T10:00:00Z"
+      }
+    ],
+    "lines": [
+      {
+        "id": "LIN-2001",
+        "customer_id": "CUS-1001",
+        "msisdn": "+1-212-555-2001",
+        "plan_id": "PLN-PLUS",
+        "status": "active",
+        "suspension_reason": null,
+        "data_used_mb": 1200,
+        "data_topup_mb": 0,
+        "provisioning_ok": 1,
+        "roaming_enabled": 0
+      }
+    ],
+    "bills": [
+      {
+        "id": "BIL-3001",
+        "customer_id": "CUS-1001",
+        "period": "2026-10",
+        "amount_cents": 4000,
+        "due_date": "2026-10-28",
+        "paid_at": "2026-10-27T09:00:00Z",
+        "overdue": 0
+      },
+      {
+        "id": "BIL-3002",
+        "customer_id": "CUS-1001",
+        "period": "2026-11",
+        "amount_cents": 4000,
+        "due_date": "2026-11-28",
+        "paid_at": null,
+        "overdue": 0
+      }
+    ],
+    "devices": [
+      {
+        "id": "DEV-4001",
+        "line_id": "LIN-2001",
+        "model": "Pixel 8",
+        "os": "android",
+        "airplane_mode": 0,
+        "mobile_data_enabled": 1,
+        "data_roaming_on": 0,
+        "is_abroad": 1,
+        "apn_ok": 1,
+        "needs_restart": 0,
+        "hardware_fault": 0,
+        "signal_bars": 4
+      }
+    ],
+    "tickets": [
+      {
+        "id": "TKT-5001",
+        "customer_id": "CUS-1001",
+        "line_id": "LIN-2001",
+        "subject": "Mobile data not working",
+        "description": "I just landed in Toronto and data hasn't worked since.",
+        "status": "open",
+        "resolution": null,
+        "created_at": "2026-11-25T08:00:00Z",
+        "updated_at": "2026-11-25T08:00:00Z"
+      }
+    ]
+  },
+  "expected_end_state": {
+    "lines": {
+      "LIN-2001": {
+        "roaming_enabled": 1
+      }
+    },
+    "devices": {
+      "DEV-4001": {
+        "data_roaming_on": 1
+      }
+    },
+    "tickets": {
+      "TKT-5001": {
+        "status": "resolved"
+      }
+    }
+  },
+  "notes": "Needs BOTH the carrier-side roaming permission and the phone's data roaming toggle."
+}
