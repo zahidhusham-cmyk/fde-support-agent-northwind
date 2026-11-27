@@ -5,10 +5,13 @@ A forward-deployed-engineer (FDE) practice project modeled on Sierra's
 customer **both** act on a shared world. The agent controls the carrier's systems; only the
 customer can touch their phone.
 
-This repo is **just the world**: a SQLite database, seed data, scenarios and a checker.
-There are no tools, no agent, no LLM calls and no logging yet. Building those is the exercise.
-Optionally, tickets can live in a real **ServiceNow** instance and lines/devices behind a **mock network API**
-(billing stays in SQLite; Stripe test mode is an optional extra). See [External systems](#external-systems-optional-realistic-mode).
+The world is a SQLite database, seed data, scenarios, and a checker. Realistic mode adds a
+**ServiceNow** ticket queue, a **mock network API** for lines and towers, and a first support agent:
+`northwind/dispatch.py` pulls one Northwind incident, `northwind/agent.py` talks to Grok, and
+`northwind/carrier_tools.py` reads and changes the carrier side. You play the customer in the terminal.
+Billing stays in SQLite. Stripe test mode is an optional extra. Device tools, a simulated customer,
+logging, and the grader loop are not built yet. See [External systems](#external-systems-optional-realistic-mode)
+and [The support agent](#the-support-agent).
 
 ## The client
 
@@ -37,6 +40,9 @@ northwind/
   seed.py                  python -m northwind.seed -> northwind.db with 12 realistic customers
   scenarios.py             list_scenarios(), load_scenario(), check_end_state()
   scenarios/*.json         14 test scenarios: initial state + expected end state
+  dispatch.py              pull one New Northwind incident from ServiceNow and hand it to the agent
+  agent.py                 Grok loop: greet once, then investigate with the carrier tools
+  carrier_tools.py         carrier tool schemas and implementations (JSON results for the model)
 tests/
   test_seed.py             seed counts, FK integrity, schema constraints
   test_scenarios.py        every scenario loads, fails before, passes when the expected state is applied
@@ -304,7 +310,8 @@ setup uses **ServiceNow + the mock network API**; billing stays in SQLite.
 | Lines, devices, cells, network view | **Mock network API** in `mock_network/` (no free real version exists) | `http://localhost:8300` |
 
 SQLite is still the source the sync scripts read from, and the scenario checker still reads SQLite.
-These scripts only **set up** the external systems. Your agent's tools, the loop, and logging are still yours to write.
+The scripts **set up** ServiceNow and, optionally, Stripe. The agent loop and carrier tools are in
+the repo; logging and the eval harness are not.
 
 ### 1. ServiceNow Personal Developer Instance (tickets)
 
@@ -329,6 +336,11 @@ Things to know:
   script can recreate the incidents any time.
 - **Production use isn't allowed:** PDIs are for learning only. Use the `admin` user here; for anything
   closer to production you'd create a dedicated integration user with the `itil` role.
+- **Basic auth can 401 even when the UI login works.** Newer PDIs enforce
+  `glide.authenticate.basic_auth.restriction.enforce`. The `admin` user needs the role
+  `snc_basic_auth_api_access` before the Table API accepts basic auth. The incident list in the UI
+  also includes ServiceNow's own demo tickets (USB ports, email passwords, payroll). Those are not
+  Northwind. The sync script stamps ours with `correlation_id`.
 
 API used (Table API, JSON, basic auth):
 ```
@@ -402,7 +414,9 @@ python scripts/sync_stripe.py --dry-run && python scripts/sync_stripe.py        
 | `SERVICENOW_INSTANCE` | `dev12345` or `https://dev12345.service-now.com` |
 | `SERVICENOW_USER`, `SERVICENOW_PASSWORD` | basic auth for the Table API |
 | `STRIPE_SECRET_KEY` | optional; `sk_test_...` / `rk_test_...` only |
-| `NETWORK_API_URL` | where your tools find the mock API (default `http://localhost:8300`) |
+| `NETWORK_API_URL` | where the carrier tools find the mock API (default `http://localhost:8300`) |
+| `XAI_API_KEY` | Grok API key for `northwind/agent.py` (`xai-...` from console.x.ai). Never commit it |
+| `GROK_MODEL` | chat model, default `grok-4` |
 
 The sync scripts are **idempotent**, so you can run them again without creating duplicates:
 - **ServiceNow:** each incident gets `correlation_id = northwind-<tag>-<ticket id>`, and existing ones are skipped.
@@ -436,23 +450,107 @@ directly. For ServiceNow (and Stripe, if used), your eval step should copy the f
 and resolution notes back into the scenario DB's `tickets` row before checking (a small "pull" step you
 write), or you can extend the checker to query them.
 
+## The support agent
+
+The agent only handles Northwind mobile-data tickets: a line, its bills, the carrier network view,
+and tower outages. It does not handle general IT incidents such as "email server is down" or
+"USB port stopped working". Those rows on a PDI are ServiceNow demo data. Dispatch ignores them.
+
+`scripts/sync_servicenow.py` writes each open SQLite ticket as one incident. The id it stores is
+`correlation_id = northwind-<tag>-<ticket id>`, for example `northwind-seed-TKT-5001`, plus
+`correlation_display = Northwind Mobile`. That field is a normal column on the incident. The default
+list view does not show it; open the record, or add the **Correlation ID** column. The customer name,
+customer id, phone number, and line id are in the description, because the sync does not create
+ServiceNow callers.
+
+```mermaid
+sequenceDiagram
+    participant SN as ServiceNow
+    participant D as dispatch.py
+    participant A as agent.py
+    participant G as Grok
+    participant You as Terminal
+    participant W as SQLite and mock API
+
+    D->>SN: oldest incident where correlation_id starts with northwind and state is New
+    SN-->>D: number, short description, description, correlation_id
+    D->>A: that text as the ticket
+    A->>G: instructions plus ticket, no tools
+    G-->>You: greeting, restates the ticket, asks to start
+    You-->>A: yes
+    loop up to 20 turns
+        A->>G: conversation plus every carrier tool
+        alt tool calls
+            G-->>A: name and arguments
+            A->>W: run the tool
+            W-->>A: JSON result
+            Note over A,G: no question yet, next turn sends the result
+        else a message
+            G-->>You: one question or a conclusion
+            You-->>A: your reply
+        end
+    end
+```
+
+Run it from the repo root. Use `python3` when `python` on the PATH is older than 3.10. The mock API
+has to be up first, or line, network, and outage tools fail.
+
+```bash
+python3 -m northwind.seed
+python3 scripts/sync_servicenow.py
+NORTHWIND_DB=northwind.db python3 -m uvicorn mock_network.app:app --port 8300
+python3 -m northwind.dispatch
+```
+
+`dispatch.py` prints the ticket, then `load_ticket` runs. The first Grok call has no tools: it only
+greets and waits. After you answer, every later call gets the one `TOOLS` list. Reads and writes are
+not split. If the model returns tool calls, those run and the loop calls Grok again before asking you
+anything. If it returns text, that text is printed and the terminal waits for a line. Replies are read
+from `/dev/tty` on a worker thread so the prompt still accepts typing inside `asyncio.run`. Ctrl+C
+stops the process. After 20 investigation turns it raises and exits. It does not set the incident to
+In Progress, and it does not resolve or escalate it.
+
+You are the customer for this version. Typing "I turned airplane mode off" only adds a sentence to
+the conversation. Nothing writes the handset, so the next `get_network_status` still shows the old
+state. There is no `device_tools.py` yet.
+
+| Tool | Now | What it uses |
+|---|---|---|
+| `get_customer` | works | SQLite `customers`, by `customer_id` |
+| `get_billing` | works | SQLite `bills` for that customer, ordered by period |
+| `get_line_status` | works | `GET /lines`. `line_id` wins if both ids are passed. Sends `X-Actor: agent` |
+| `get_network_status` | works | `GET /lines/{id}/network`. Symptoms, not the phone settings |
+| `check_area_outages` | works | `GET /cells?status=outage`, then filters by place name (`Queens`). No area lists every outage |
+| `resume_line` | works | reads `suspension_reason` itself. Refuses `fraud_hold`, refuses `non_payment` while any bill is `overdue`, refuses `cancelled`. A real resume sets `status='active'` and `suspension_reason=NULL` in one update |
+| `pay_bill` | wired, write does not match the schema | `UPDATE bills SET paid = 1`. The columns are `paid_at` and `overdue`, so this update fails |
+| `add_data_topup` | not built | should add at least 1024 MB and leave the plan alone |
+| `enable_roaming` | not built | line flag only |
+| `reset_network_provisioning` | not built | `lines.provisioning_ok` and the handset `apn_ok`, and the APN write cannot use `X-Actor: agent` |
+| `update_ticket`, `escalate_to_human` | not built | PATCH the ServiceNow incident, then copy status and resolution back to SQLite before `check_end_state` |
+| device tools | not built | `check_status_bar`, `toggle_airplane_mode`, `toggle_mobile_data`, `toggle_data_roaming`, `restart_device`, `reseat_sim`, `run_speed_test`, all with `X-Actor: user` |
+
+Seed incidents from `python scripts/sync_servicenow.py` with the default tag are `INC0010001` through
+`INC0010009`, correlation ids `northwind-seed-TKT-5001` and up. The first one dispatch will take,
+while it is still New, is `INC0010001`: Daniel Okafor, `CUS-1002`, `LIN-2002`, "No data since this morning."
+
 ## Your tasks
 
-Build these yourself, roughly in order. Get each working before starting the next.
+Roughly in order. The first two are started; the rest are not.
 
-1. **Tools.** `northwind/carrier_tools.py` for the agent (e.g. `get_customer`, `get_line_status`,
-   `get_billing`, `pay_bill`, `get_network_status`, `check_area_outages`,
-   `resume_line` (only if no overdue bill and never for `fraud_hold`),
-   `reset_network_provisioning` (also fixes the handset APN), `add_data_topup`, `enable_roaming`,
-   `update_ticket`/`escalate_to_human`) and `northwind/device_tools.py` for the customer
-   (`check_status_bar`, `toggle_airplane_mode`, `toggle_mobile_data`, `toggle_data_roaming`,
-   `restart_device`, `reseat_sim`, `run_speed_test`). Agent tools must never read `devices`; they get
-   the network view instead. Each takes a connection, reads/writes SQLite, and returns a dict.
-   Add a registry with JSON-schema descriptions so an LLM can call them. Unit-test them.
-   In realistic mode, ticket tools call ServiceNow and line/device/network tools call the mock network API.
-2. **Agent loop.** An LLM that gets the ticket and the carrier tools and loops
-   think → call a tool or message the customer → read the result, until it resolves, escalates,
-   or hits a max-turn cap. It must never call device tools itself.
+1. **Tools.** `northwind/carrier_tools.py` has `get_customer`, `get_billing`, `get_line_status`,
+   `get_network_status`, `check_area_outages`, `pay_bill`, and `resume_line`. Still to add:
+   `add_data_topup`, `enable_roaming`, `reset_network_provisioning` (also fixes the handset APN),
+   and `update_ticket` / `escalate_to_human`. Fix `pay_bill` so it sets `paid_at` and `overdue = 0`.
+   `northwind/device_tools.py` is still to build for the customer (`check_status_bar`,
+   `toggle_airplane_mode`, `toggle_mobile_data`, `toggle_data_roaming`, `restart_device`,
+   `reseat_sim`, `run_speed_test`). Agent tools must never read `devices`; they get the network view
+   instead. `process_tool_call` returns a JSON string the model can read. Unit-test the tools.
+   Ticket tools call ServiceNow. Line, network, and outage tools call the mock API. `resume_line`
+   and billing stay on SQLite.
+2. **Agent loop.** `dispatch.py` feeds one New Northwind incident to `agent.py`. Grok greets with
+   no tools, then loops: call a carrier tool or ask the person at the terminal, until 20 turns.
+   Still to add: stop when the ticket is resolved or escalated, PATCH that state back to ServiceNow,
+   and keep the agent off device tools once those exist.
 3. **Simulated customer.** A second LLM that gets only the device tools, the scenario's
    `customer_persona` and `opening_message`. It doesn't know the root cause, answers from what its
    tools actually show, and does what the agent asks (or gets it slightly wrong, per persona).
