@@ -4,12 +4,14 @@
 import asyncio
 import json
 import os
+import re
 import sys
 import time  # telemetry: tool-call duration
 
 import httpx2
 
 from northwind.carrier_tools import TOOLS, process_tool_call
+from northwind.customer_actions import process_customer_action
 from northwind.integrations import load_env
 from northwind.trace import record_message, record_start_run, record_tool_call  # telemetry
 
@@ -51,6 +53,23 @@ def _read_reply(prompt: str = "> ") -> str:
     if not line:
         raise EOFError("no reply")
     return line.strip()
+
+
+def _line_id(ticket: str) -> str | None:
+    """The LIN-... id written into the ServiceNow description."""
+    match = re.search(r"LIN-\d+", ticket or "")
+    return match.group(0) if match else None
+
+
+def _apply_customer_reply(reply: str, line_id: str | None) -> None:
+    """If the reply is an exact phone action, PATCH the device as the customer.
+
+    Any other sentence returns None and is left for the agent. The typed text
+    still goes to the model either way.
+    """
+    result = process_customer_action(reply, line_id or "")
+    if result:
+        print(result, flush=True)
 
 
 async def ask_question(agent_message: str) -> str:
@@ -165,6 +184,7 @@ async def load_ticket(ticket: str):
     row = _trace_row(ticket)
     run_id = record_start_run(row)
     record_message(run_id, "user", ticket)
+    line_id = _line_id(ticket)
 
     async with httpx2.AsyncClient(timeout=60) as client:
         # One greeting. No tools, and not part of the investigation loop.
@@ -190,6 +210,7 @@ async def load_ticket(ticket: str):
                 raise RuntimeError("Model returned no text to show the user.")
             record_message(run_id, "agent", text)  # telemetry
             answer = await ask_question(text)
+            _apply_customer_reply(answer, line_id)
             record_message(run_id, "user", answer)  # telemetry
             messages.append({"role": "user", "content": answer})
     raise RuntimeError(f"Stopped after {MAX_TURNS} investigation turns.")
